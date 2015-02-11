@@ -1,10 +1,11 @@
 require 'test_helper'
 
-class Cat1Test < MiniTest::Unit::TestCase
+class Cat1Test < Minitest::Test
   include HealthDataStandards::Export::Helper::Cat1ViewHelper
 
   def setup
     unless @initialized
+      dump_database
       collection_fixtures('records')
       @patient = Record.where({first: "Barry"}).first
 
@@ -17,6 +18,8 @@ class Cat1Test < MiniTest::Unit::TestCase
 
       @start_date = Time.now.years_ago(1)
       @end_date = Time.now
+
+      collection_fixtures('health_data_standards_svs_value_sets', '_id')
 
       collection_fixtures('measures')
       @measures = HealthDataStandards::CQM::Measure.all
@@ -33,6 +36,9 @@ class Cat1Test < MiniTest::Unit::TestCase
      xsd = Nokogiri::XML::Schema(open("./resources/schema/infrastructure/cda/CDA_SDTC.xsd"))
      valid_measures = @measures.select { |m| m.hqmf_id.length > 4 } #make sure there is a valid hqmf_id
      Record.all.each do |record|
+      insurance_provider = InsuranceProvider.new(start_time: Time.new(2008,1,1).to_i,
+                                                 codes: {"SOP" => 349})
+      record.insurance_providers << insurance_provider
       puts "Testing Cat I for #{record.first} #{record.last}"
       doc = Nokogiri::XML(HealthDataStandards::Export::Cat1.new.export(record,valid_measures,@start_date,@end_date, @header))
       assert_equal [], xsd.validate(doc), "Invalid Cat I for #{record.first} #{record.last}"
@@ -50,7 +56,7 @@ class Cat1Test < MiniTest::Unit::TestCase
 
   def test_patient_data_section_export
     med_dispensed = @doc.at_xpath('//cda:supply[cda:templateId/@root="2.16.840.1.113883.10.20.24.3.45"]')
-    assert med_dispensed
+    assert med_dispensed, "med_dispensed is nil"
     assert_equal "Multivitamin", med_dispensed.at_xpath('./cda:text').text
   end
 
@@ -95,7 +101,7 @@ class Cat1Test < MiniTest::Unit::TestCase
     measure_entries = @doc.xpath('//cda:section[cda:templateId/@root="2.16.840.1.113883.10.20.24.2.3"]/cda:entry')
     assert_equal @measures.length, measure_entries.size
     measure = measure_entries.find do |measure_entry|
-      measure_entry.at_xpath('./cda:organizer/cda:reference/cda:externalDocument/cda:id[@root="0001"]').present?
+      measure_entry.at_xpath('./cda:organizer/cda:reference/cda:externalDocument/cda:id[@extension="0001"]').present?
     end
     assert measure
   end

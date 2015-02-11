@@ -10,20 +10,44 @@ module HealthDataStandards
            BulkRecordImporter.import_file(file,File.new(file).read,failed_dir)
         end
       end
-      
-      def self.import_archive(file, failed_dir=nil) 
-        begin 
+
+      def self.import_archive(file, failed_dir=nil)
+        begin
         failed_dir ||=File.join(File.dirname(file))
+
+        patient_id_list = nil
+
         Zip::ZipFile.open(file.path) do |zipfile|
           zipfile.entries.each do |entry|
+            if entry.name
+              if entry.name.split("/").last == "patient_manifest.txt"
+                patient_id_list = zipfile.read(entry.name)
+                next
+              end
+            end
             next if entry.directory?
             data = zipfile.read(entry.name)
             BulkRecordImporter.import_file(entry.name,data,failed_dir)
           end
         end
+
+        missing_patients = []
+
+        #if there was a patient manifest, theres a patient id list we need to load
+        if patient_id_list
+          patient_id_list.split("\n").each do |id|
+            patient = Record.where(:medical_record_number => id).first
+            if patient == nil
+              missing_patients << id
+            end
+          end
+        end
+
+        missing_patients
+
       rescue
         FileUtils.mkdir_p(failed_dir)
-        File.cp(file,File.join(failed_dir,file))
+        FileUtils.cp(file,File.join(failed_dir,File.basename(file)))
         File.open(File.join(failed_dir,"#{file}.error")) do |f|
           f.puts($!.message)
           f.puts($!.backtrace)
@@ -54,15 +78,22 @@ module HealthDataStandards
 
       def self.import_json(data,provider_map = {})
         json = JSON.parse(data,:max_nesting=>100)
-        Record.update_or_create(Record.new(json))
+        record = Record.update_or_create(Record.new(json))
+        providers = record.provider_performances
+        providers.each do |prov|
+          prov.provider.ancestors.each do |ancestor|
+            record.provider_performances.push(ProviderPerformance.new(start_date: prov.start_date, end_date: prov.end_date, provider: ancestor))
+          end
+        end
+        record.save!
       end
-      
+
       def self.import(xml_data, provider_map = {})
         doc = Nokogiri::XML(xml_data)
-        
+
         providers = []
         root_element_name = doc.root.name
-        
+
         if root_element_name == 'ClinicalDocument'
           doc.root.add_namespace_definition('cda', 'urn:hl7-org:v3')
           doc.root.add_namespace_definition('sdtc', 'urn:hl7-org:sdtc')
@@ -77,9 +108,11 @@ module HealthDataStandards
             STDERR.puts("Unable to determinate document template/type of CDA document")
             return {status: 'error', message: "Document templateId does not identify it as a C32 or CCDA", status_code: 400}
           end
-          
+
+          record = Record.update_or_create(patient_data)
+
           begin
-            providers = CDA::ProviderImporter.instance.extract_providers(doc)
+            providers = CDA::ProviderImporter.instance.extract_providers(doc, record)
           rescue Exception => e
             STDERR.puts "error extracting providers"
           end
@@ -87,11 +120,10 @@ module HealthDataStandards
           return {status: 'error', message: 'Unknown XML Format', status_code: 400}
         end
 
-        record = Record.update_or_create(patient_data)
         record.provider_performances = providers
-        providers.each do |prov| 
+        providers.each do |prov|
           prov.provider.ancestors.each do |ancestor|
-            record.provider_performances.push(ProviderPerformance.new(start_date: prov.start_date, end_date: prov.end_date, provider: ancestor))  
+            record.provider_performances.push(ProviderPerformance.new(start_date: prov.start_date, end_date: prov.end_date, provider: ancestor))
           end
         end
         record.save

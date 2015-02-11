@@ -25,7 +25,7 @@ module HealthDataStandards
           mapped_data_criteria = {}
 
           all_data_criteria.each do |data_criteria|
-            data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition, 
+            data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition,
                                                                               (data_criteria.status || ""),
                                                                               data_criteria.negation)
 
@@ -37,7 +37,7 @@ module HealthDataStandards
             value_set_oid = data_criteria.code_list_id
             dc = {'data_criteria_oid' => data_criteria_oid, 'value_set_oid' => value_set_oid}
             mapping = mapped_data_criteria[dc] ||= {'result_oids' => [], 'field_oids' =>{}, 'data_criteria' => data_criteria}
-            
+
             if data_criteria.field_values
               data_criteria.field_values.each_pair do |field,descr|
                 if descr && descr.type == "CD"
@@ -60,7 +60,7 @@ module HealthDataStandards
         def entry_matches_criteria(entry, data_criteria_info_list)
           data_criteria_info_list.each do |data_criteria_info|
             data_criteria = data_criteria_info['data_criteria']
-            data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition, 
+            data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition,
                                                                                         data_criteria.status || '',
                                                                                         data_criteria.negation)
             if entry.respond_to?(:oid) && (entry.oid == data_criteria_oid)
@@ -74,13 +74,13 @@ module HealthDataStandards
               end
             end
           end
-          
+
           false
         end
-        
+
         # Find all of the entries on a patient that match the given data criteria
         def entries_for_data_criteria(data_criteria, patient)
-          data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition, 
+          data_criteria_oid = HQMFTemplateHelper.template_id_by_definition_and_status(data_criteria.definition,
                                                                                       data_criteria.status || '',
                                                                                        data_criteria.negation)
           HealthDataStandards.logger.warn("Looking for dc [#{data_criteria_oid}]")
@@ -118,6 +118,7 @@ module HealthDataStandards
             end
  
             codes ||= (value_set_map(patient["bundle_id"])[data_criteria.code_list_id] || [])
+
             if codes.empty?
               HealthDataStandards.logger.warn("No codes for #{data_criteria.code_list_id}")
             end
@@ -147,6 +148,14 @@ module HealthDataStandards
           end
 
           filtered_entries
+        end
+
+        def handle_clinical_trial_participant(patient)
+          if patient.clinical_trial_participant
+            [Entry.new]
+          else
+            []
+          end
         end
 
         def handle_patient_expired(patient)
